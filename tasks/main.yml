@@ -1,0 +1,80 @@
+---
+- name: pull dns container image
+  shell: docker pull skynetservices/skydns
+
+- name: download netmaster and netplugin
+  get_url:
+    validate_certs: "{{ validate_certs }}"
+    url: "{{ contiv_network_src_file }}"
+    dest: "{{ contiv_network_dest_file }}" 
+
+- name: ensure netplugin directory exists
+  file: path=/usr/bin/contiv/netplugin state=directory
+
+- name: install netmaster and netplugin
+  shell: tar xvfj {{ contiv_network_dest_file }} -C /usr/bin/contiv/netplugin
+
+- name: create links for netplugin binaries
+  file: src=/usr/bin/contiv/netplugin/{{ item }} dest=/usr/bin/{{ item }} state=link force=yes
+  with_items:
+    - netctl
+    - netmaster
+    - netplugin
+
+- name: copy environment file for netplugin
+  template: src=netplugin.j2 dest=/etc/default/netplugin
+
+- name: copy systemd units for netplugin
+  copy: src=netplugin.service dest=/etc/systemd/system/netplugin.service
+
+- name: copy bash auto complete file for netctl
+  file: src=/usr/bin/contiv/netplugin/contrib/completion/bash/netctl dest=/etc/bash_completion.d/netctl state=link
+
+- name: start netplugin
+  shell: systemctl daemon-reload && systemctl start netplugin
+
+- name: setup netmaster host alias
+  lineinfile:
+    dest: /etc/hosts
+    line: "{{ service_vip }} netmaster"
+    regexp: " netmaster$"
+    state: present
+
+# XXX: remove this task once the following is resolved: https://github.com/contiv/netplugin/issues/275
+- name: setup hostname alias
+  lineinfile:
+    dest: /etc/hosts
+    line: "{{ item.line }}"
+    regexp: "{{ item.regexp }}"
+    state: present
+  with_items:
+    - { line: '127.0.0.1 localhost', regexp: '^127\.0\.0\.1' }
+    - { line: '{{ node_addr }} {{ ansible_hostname }}', regexp: ' {{ ansible_hostname }}$' }
+
+- name: copy environment file for netmaster
+  template: src=netmaster.j2 dest=/etc/default/netmaster
+
+- name: copy systemd units for netmaster
+  copy: src=netmaster.service dest=/etc/systemd/system/netmaster.service
+
+- name: start netmaster
+  shell: systemctl daemon-reload && systemctl start netmaster
+  when: master == true
+
+- name: wait for netmaster to be ready
+  action: shell netctl tenant ls
+  register: tenant_result
+  until: tenant_result.stdout.find("default") != -1
+  retries: 9
+  delay: 10
+
+- name: set fwd mode
+  shell: netctl global set --fwd-mode "{{ fwd_mode }}"
+  when: master == true
+  run_once: true 
+
+- name: copy CNI config
+  copy: src=contivnet-mesos.conf dest=/var/lib/mesos/cni/config/contiv.cfg
+
+- name: copy CNI plugin
+  copy: src=/usr/bin/contiv/netplugin/netcontiv dest=/var/lib/mesos/cni/plugins/netcontiv

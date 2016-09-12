@@ -1,0 +1,7 @@
+netplugin_mode: "docker" # docker/kubernetes
+fwd_mode: "bridge" # bridge/routing
+validate_certs: no
+contiv_network_version: "v0.1-09-08-2016.20-56-40.UTC"
+contiv_network_tar_file: "netplugin-{{ contiv_network_version }}.tar.bz2"
+contiv_network_src_file: "https://github.com/contiv/netplugin/releases/download/{{ contiv_network_version }}/{{ contiv_network_tar_file }}"
+contiv_network_dest_file: "/tmp/{{ contiv_network_tar_file }}"
