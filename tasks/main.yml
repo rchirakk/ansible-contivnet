@@ -1,6 +1,13 @@
 ---
+- name: install docker
+  shell: curl -fsSl https://get.docker.com/ | sed 's/docker-engine/docker-engine-{{ docker_version }}/' | bash
+
+- name: start docker service
+  service: name=docker enabled=yes state=started
+
 - name: pull dns container image
   shell: docker pull skynetservices/skydns
+  when: netmaster == "yes"
 
 - name: download netmaster and netplugin
   get_url:
@@ -33,15 +40,14 @@
 - name: start netplugin
   shell: systemctl daemon-reload && systemctl start netplugin
 
-- name: setup netmaster host alias
+- name: add netmaster in /etc/hosts
   lineinfile:
     dest: /etc/hosts
-    line: "{{ service_vip }} netmaster"
+    line: "{{ netmaster_ipaddress }} netmaster {{ ansible_hostname }}"
     regexp: " netmaster$"
     state: present
 
-# XXX: remove this task once the following is resolved: https://github.com/contiv/netplugin/issues/275
-- name: setup hostname alias
+- name: add hostname in /etc/hosts
   lineinfile:
     dest: /etc/hosts
     line: "{{ item.line }}"
@@ -49,7 +55,8 @@
     state: present
   with_items:
     - { line: '127.0.0.1 localhost', regexp: '^127\.0\.0\.1' }
-    - { line: '{{ node_addr }} {{ ansible_hostname }}', regexp: ' {{ ansible_hostname }}$' }
+    - { line: '{{ netplugin_ctrl_interface }} {{ ansible_hostname }}', regexp: ' {{ ansible_hostname }}$' }
+
 
 - name: copy environment file for netmaster
   template: src=netmaster.j2 dest=/etc/default/netmaster
@@ -59,7 +66,7 @@
 
 - name: start netmaster
   shell: systemctl daemon-reload && systemctl start netmaster
-  when: master == true
+  when: netmaster == "yes"
 
 - name: wait for netmaster to be ready
   action: shell netctl tenant ls
@@ -70,11 +77,14 @@
 
 - name: set fwd mode
   shell: netctl global set --fwd-mode "{{ fwd_mode }}"
-  when: master == true
+  when: netmaster == "yes"
   run_once: true 
+
+- name: create CNI dirs
+  shell: mkdir -p /var/lib/mesos/cni/plugins/ /var/lib/mesos/cni/config/
 
 - name: copy CNI config
   copy: src=contivnet-mesos.conf dest=/var/lib/mesos/cni/config/contiv.cfg
 
 - name: copy CNI plugin
-  copy: src=/usr/bin/contiv/netplugin/netcontiv dest=/var/lib/mesos/cni/plugins/netcontiv
+  shell: cp /usr/bin/contiv/netplugin/netcontiv /var/lib/mesos/cni/plugins/netcontiv

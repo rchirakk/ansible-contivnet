@@ -1,5 +1,11 @@
+docker_version: "1.11.2"
 netplugin_mode: "docker" # docker/kubernetes
 fwd_mode: "bridge" # bridge/routing
+netmaster: no
+netplugin_ctrl_interface: "{{ etcd_peer_interface }}"
+netplugin_ctrl_ipaddress: "{{ hostvars[inventory_hostname]['ansible_' + netplugin_ctrl_interface]['ipv4']['address'] }}"
+netmaster_node: "{{ groups['master'][0] }}"
+netmaster_ipaddress: "{{ hostvars[netmaster_node]['ansible_' + netplugin_ctrl_interface]['ipv4']['address'] }}"
 validate_certs: no
 contiv_network_version: "v0.1-09-08-2016.20-56-40.UTC"
 contiv_network_tar_file: "netplugin-{{ contiv_network_version }}.tar.bz2"
